@@ -1,0 +1,15 @@
+ARG DOCKER_BASE_IMAGE
+FROM ${DOCKER_BASE_IMAGE}
+
+ARG GID
+ARG UID
+ARG GROUP
+ARG USER
+RUN apt update && apt install sudo
+RUN echo root:root | chpasswd \
+ && groupadd -f -g ${GID} ${GROUP} \
+ && useradd -g ${GID} -u ${UID} -m ${USER} \
+ && echo ${USER}:${USER} | chpasswd \
+ && echo "${USER}  ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/${USER} \
+ && echo -e "\nexport PS1=\"(TensorRT) \\u@\\h:\\w\\$ \"" | tee -a /home/${USER}/.bashrc \
+ && echo -e "\n%sudo ALL=(ALL:ALL) NOPASSWD:ALL\n" | tee -a /etc/sudoers

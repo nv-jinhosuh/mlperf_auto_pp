@@ -1,0 +1,6 @@
+name: pp_prep
+dependencies:
+  - python=3.10
+  - pip:
+    - waymo-open-dataset-tf-2-11-0
+    - numpy==1.26.0

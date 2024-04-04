@@ -1,0 +1,78 @@
+ARG DOCKER_BASE_IMAGE
+FROM ${DOCKER_BASE_IMAGE}
+
+ARG SARCH=x86_64
+ARG IARCH=amd64
+
+RUN apt-get update && apt-get install -y --no-install-recommends ripgrep tree
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install colored pdbpp
+
+# CMake
+ARG CMAKE_VER=3.29.0
+RUN cd /tmp \
+    && wget --progress=bar:force:noscroll https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-linux-${SARCH}.sh \
+    && bash cmake-${CMAKE_VER}-linux-${SARCH}.sh --prefix=/usr/local --exclude-subdir \
+    && rm cmake-${CMAKE_VER}-linux-${SARCH}.sh
+ENV PATH="/usr/local/bin:${PATH}"
+
+
+# conda
+ARG MINICONDA_VER=24.1.2
+WORKDIR /tmp
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py310_${MINICONDA_VER}-0-Linux-${SARCH}.sh \
+    && bash Miniconda3-py310_${MINICONDA_VER}-0-Linux-${SARCH}.sh -b -p /opt/miniconda3
+ENV PATH="$PATH:/opt/miniconda3/bin"
+
+RUN pip3 install pyyaml tqdm numba 
+# TODO: remove waymo-open-dataset-tf/mmcv when preprocessing is no more needed
+# RUN pip3 install waymo-open-dataset-tf-2-11-0 mmcv opencv-python==4.8.0.74 nuscenes-devkit mmdet mmdet3d
+# RUN apt install -y ffmpeg libsm6 libxext6 
+RUN pip3 install open3d
+RUN pip3 install numpy==1.24.0 dask==2024.1.1 protobuf==4.21 pillow==9.3.0 tensorboard==2.16.2
+
+
+# # Remove prevous TRT installation
+# RUN apt-get remove --purge -y tensorrt* libnvinfer* libnvparsers* libnvonnxparsers* 
+# RUN pip uninstall -y tensorrt
+
+# # Install cudnn 8.9 for TRT 9
+# ARG CUDNN_DEB_URL=https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${SARCH}/
+# RUN cd /tmp \
+#     && install_deb_pkg() { wget $CUDNN_DEB_URL/$1 -O $1 && dpkg -i $1 && rm $1; } \
+#     && install_deb_pkg libcudnn8_8.9.7.29-1+cuda12.2_${IARCH}.deb \
+#     && install_deb_pkg libcudnn8-dev_8.9.7.29-1+cuda12.2_${IARCH}.deb \
+#     && unset -f install_deb_pkg
+
+# # Download and install TensorRT
+# ARG TRT_DEB_URL
+# ARG TRT_MAJOR_VER
+# ARG TRT_MINOR_VER
+# ARG TRT_PATCH_VER
+# ARG TRT_QA_VER
+# ARG CUDA_VER
+# ARG TRT_VER=${TRT_MAJOR_VER}.${TRT_MINOR_VER}.${TRT_PATCH_VER}.${TRT_QA_VER}
+# RUN cd /tmp \
+#     && install_deb_pkg() { wget -q $TRT_DEB_URL/$1 -O $1 && dpkg -i $1 && rm $1; } \
+#     && install_deb_pkg libnvinfer${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-headers-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-headers-plugin-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-lean${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-lean-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-dispatch${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-dispatch-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-plugin${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-plugin-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-vc-plugin${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-vc-plugin-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvonnxparsers${TRT_MAJOR_VER}_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvonnxparsers-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg python3-libnvinfer_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg python3-libnvinfer-lean_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg python3-libnvinfer-dispatch_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg python3-libnvinfer-dev_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg libnvinfer-bin_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && install_deb_pkg onnx-graphsurgeon_${TRT_VER}-1+cuda${CUDA_VER}_${IARCH}.deb \
+#     && ln -sf /usr/src/tensorrt/bin/trtexec /usr/bin/trtexec \
+#     && unset -f install_deb_pkg;
