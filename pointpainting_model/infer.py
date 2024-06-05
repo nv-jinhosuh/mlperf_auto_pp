@@ -49,16 +49,20 @@ def run_infer(args):
 
     target_device = 'cuda' if (torch.cuda.is_available() and not args.no_cuda) else 'cpu'
 
+    proj_mat_path = Path(args.projection_matrix_npy_path)
+    assert proj_mat_path.is_file(), "Need valid projection matrix file for lidar detection network"
+    proj_mat = np.load(str(proj_mat_path))
+
     PointPaintingModel = PointPainting(args.segmentation_model_path,
                                        args.lidar_model_path,
                                        args.num_classes,
                                        args.cam_sync,
+                                       proj_mat,
                                        target_device)
 
     print('Starting Inference Task...')
+    result_dict = dict()
     with torch.inference_mode():
-        format_results = {}
-        latency_results = []
         for i, data_dict in enumerate(tqdm(val_dataloader)):
             # Prep the input tensors
             data_dict['batched_calib_info'][0] = convert_calib(data_dict['batched_calib_info'][0], target_device)
@@ -81,22 +85,26 @@ def run_infer(args):
                                 data_dict['batched_calib_info'][0])
             end_time = time.perf_counter()
             iter_time = end_time - start_time
+
             assert len(batched_results) == 1, "Expecting only one output tensor"
             results_dict[i] = {
                 'results': batched_results[0].to('cpu'),
                 'latency': iter_time,
-                'ground_truth': 
+                'ground_truth': {
+                    'lidar_bboxes': data_dict['batched_gt_bboxxes'][0],
+                    'lables': data_dict['batched_labels'][0]
+                }
             }
-            
-
     
-
+    return result_dict
+    
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Configuration Parameters')
     parser.add_argument('--lidar_model_path', help='Path to lidar (PointPillar) model', required=True)
     parser.add_argument('--segmentation_model_path', help='Path to segmentation (DeepLabV3plus_RN50) model', required=True)
+    parser.add_argument('--projection_matrix_npy_path', help='Path to projection matrix numpy file', required=True)
     parser.add_argument('--num_classes', type=int, default=3, help='Number of classes for 3D detection')
     parser.add_argument('--cam_sync', action='store_true', help='Use only objects visible to a camera')
     parser.add_argument('--waymo_path', help='Path to data root of waymo dataset')
@@ -104,5 +112,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    run_infer(args)
+    results = run_infer(args)
+    eval_results = run_eval(results)
     

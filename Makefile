@@ -26,6 +26,7 @@ DOCKER_TAG := $(UNAME)
 DOCKER_NAME := $(DOCKER_IMAGE_NAME)--$(DOCKER_TAG)
 
 DOCKER_FILENAME ?= docker/Dockerfile.$(ARCH).build
+DOCKER_WAYMO_FILENAME ?= docker/Dockerfile.$(ARCH).waymo
 
 ifeq ($(DOCKER_COMMAND),)
 	DOCKER_INTERACTIVE_FLAGS = -it
@@ -62,6 +63,14 @@ build_docker:
 		--build-arg CUDA_VER=$(CUDA_VER) \
 		--network host \
 		-f $(DOCKER_FILENAME) \
+		.
+
+.PHONY: build_waymo_docker
+build_waymo_docker:
+	docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-latest \
+		--build-arg DOCKER_BASE_IMAGE=$(DOCKER_BASE_IMAGE):$(DOCKER_TAG)-latest \
+		--network host \
+		-f $(DOCKER_WAYMO_FILENAME) \
 		.
 
 .PHONY: docker_add_user
@@ -112,4 +121,9 @@ run_docker:
 	@$(MAKE) -f $(MAKEFILE_NAME) build_docker
 	@$(MAKE) -f $(MAKEFILE_NAME) attach_docker || true
 
-
+# Run docker with Waymo
+.PHONY: run_waymo_docker
+run_waymo_docker:
+	@$(MAKE) -f $(MAKEFILE_NAME) build_docker
+	@$(MAKE) -f $(MAKEFILE_NAME) build_waymo_docker
+	@$(MAKE) -f $(MAKEFILE_NAME) attach_docker || true

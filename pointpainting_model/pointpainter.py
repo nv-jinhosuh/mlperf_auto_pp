@@ -1,11 +1,15 @@
 import torch
 
 class PointPainter(nn.Module):
-    def __init__(self, cam_sync=False, target_device='cpu'):
+    def __init__(self, cam_sync=False, proj_mat=None, target_device='cpu'):
         super().__init__()
+
+        self.device = torch.device(target_device)
         self.seg_net_index = 0
         self.cam_sync = cam_sync
-        self.device = torch.device(target_device)
+        self.proj_matrix = proj_mat
+        assert self.proj_matrix is not None, "Need valid projection matrix"
+        self.proj_matrix.to(self.device)
 
     def get_score(self, x):
         sf = torch.nn.Softmax(dim=2)
@@ -52,13 +56,14 @@ class PointPainter(nn.Module):
         points_projected_on_mask = points_projected_on_mask[:, :2] #drops homogenous coord 1 from every point, giving (N_pts, 2) int array
         return (points_projected_on_mask, true_where_point_on_img)
 
-    def augment_lidar_class_scores_both(self, class_scores, lidar_raw, projection_mats):
+    def augment_lidar_class_scores_both(self, class_scores, lidar_raw):
         """
         Projects lidar points onto segmentation map, appends class score each point projects onto.
         """
         #lidar_cam_coords = self.cam_to_lidar(lidar_raw, projection_mats)
         # TODO: Project lidar points onto left and right segmentation maps. How to use projection_mats? 
         ################################
+        project_mats = self.proj_matrix
         lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 0)
 
         # right
@@ -112,5 +117,5 @@ class PointPainter(nn.Module):
         return augmented_lidar
 
     @torch.no_grad()
-    def forward(self, segmentation_results, lidar_raw, projection_mats):
-        return self.augment_lidar_class_scores_both(self.get_score(segmentation_results), lidar_raw, projection_mats)
+    def forward(self, segmentation_results, lidar_raw):
+        return self.augment_lidar_class_scores_both(self.get_score(segmentation_results), lidar_raw))

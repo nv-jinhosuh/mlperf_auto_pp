@@ -1,6 +1,4 @@
-import argparse
 import torch
-from collections import namedtuple
 from pathlib import Path
 
 from deeplabv3plus import DeepLabV3Plus_ResNet50
@@ -14,6 +12,7 @@ class PointPainting(nn.Model):
                  lidar_model_path,
                  num_classes,
                  cam_sync,
+                 proj_mat,
                  target_device = 'cpu'):
         super().__init__()
 
@@ -21,23 +20,23 @@ class PointPainting(nn.Model):
         detector_checkpoint_path = Path(lidar_model_path).absolute()
         assert segmenter_checkpoint_path.is_file(), "Need valid checkpoint file for segmentation network"
         assert detector_checkpoint_path.is_file(), "Need valid checkpoint file for lidar detection network"
-
+        
         self.device = target_device
+        self.proj_mat = proj_mat
 
         self.segmenter = DeepLabV3Plus_ResNet50(str(segmenter_checkpoint_path), self.device)
-        self.painter = PointPainter(args.cam_sync, self.device)
+        self.painter = PointPainter(cam_sync, self.proj_mat, self.device)
         self.detector = PointPillars(nclasses=num_classes, target_device=self.device)
     
     @torch.no_grad()
-    def forward(self, x, y, z):
+    def forward(self, x, y):
         '''
         x: input image captured from cameras, batchsize = number of cameras
         y: input point cloud captured from lidar, batchsize = 1
-        z: calib info for input point cloud
         '''
 
         result = self.segmenter(x)
-        result = self.painter(result, y, z)
+        result = self.painter(result, y)
         result = self.detector(result)
 
         return result
