@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-try: # for torchvision<0.4
-    from torchvision.models.utils import load_state_dict_from_url
-except: # for torchvision>=0.4
-    from torch.hub import load_state_dict_from_url
+
+from torch.hub import load_state_dict_from_url
 from collections import OrderedDict
 
 
@@ -126,29 +124,6 @@ class ASPP(nn.Module):
         res = torch.cat(res, dim=1)
         return self.project(res)
 
-
-class ResNet50(nn.Module):
-    r"""ResNet-50 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    def __init__(pretrained=False, progress=True, **kwargs):
-        block = ResNetBottleneck
-        layers = [3, 4, 6, 3]
-
-        self.model = ResNet(block, layers, **kwargs)
-        if pretrained:
-            model_url = 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-            state_dict = load_state_dict_from_url(model_url,
-                                                progress=progress)
-            self.model.load_state_dict(state_dict)
-    
-    @torch.no_grad()
-    def forward(self, x):
-        return self.model.forward(x)
 
 class ResNetBasicBlock(nn.Module):
     expansion = 1
@@ -335,6 +310,33 @@ class ResNet(nn.Module):
         return x
 
 
+class ResNet50(nn.Module):
+    r"""ResNet-50 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    def __init__(self, pretrained=False, replace_stride_with_dilation=None, progress=True, **kwargs):
+        super().__init__()
+
+        block = ResNetBottleneck
+        layers = [3, 4, 6, 3]
+
+        self.model = ResNet(block, layers, replace_stride_with_dilation=replace_stride_with_dilation,
+                            **kwargs)
+        if pretrained:
+            model_url = "https://download.pytorch.org/models/resnet50-19c8e357.pth"
+            state_dict = load_state_dict_from_url(url=model_url,
+                                                  progress=progress)
+            self.model.load_state_dict(state_dict)
+    
+    @torch.no_grad()
+    def forward(self, x):
+        return self.model.forward(x)
+
+
 class IntermediateLayerGetter(nn.ModuleDict):
     """
     Module wrapper that returns intermediate layers from a model
@@ -391,15 +393,7 @@ class IntermediateLayerGetter(nn.ModuleDict):
 
             if name in self.return_layers:
                 out_name = self.return_layers[name]
-                if name == 'stage4' and self.hrnet_flag: # In HRNetV2, we upsample and concat all outputs streams together
-                    output_h, output_w = x[0].size(2), x[0].size(3)  # Upsample to size of highest resolution stream
-                    x1 = F.interpolate(x[1], size=(output_h, output_w), mode='bilinear', align_corners=False)
-                    x2 = F.interpolate(x[2], size=(output_h, output_w), mode='bilinear', align_corners=False)
-                    x3 = F.interpolate(x[3], size=(output_h, output_w), mode='bilinear', align_corners=False)
-                    x = torch.cat([x[0], x1, x2, x3], dim=1)
-                    out[out_name] = x
-                else:
-                    out[out_name] = x
+                out[out_name] = x
         return out
 
 
@@ -412,7 +406,9 @@ class DeepLabV3Plus_ResNet50(nn.Module):
         pretrained_backbone (bool): If True, use the pretrained backbone.
     """
     def __init__(self, checkpoint=None, target_device='cpu', num_classes=19, output_stride=16, 
-                 pretrained_backbone=True):
+                 pretrained_backbone=False):
+        super().__init__()
+        
         self.device = torch.device(target_device)
 
         if output_stride==8:
@@ -432,7 +428,7 @@ class DeepLabV3Plus_ResNet50(nn.Module):
 
         return_layers = {'layer4': 'out', 'layer1': 'low_level'}
         classifier = DeepLabHeadV3Plus(inplanes, low_level_planes, num_classes, aspp_dilate)
-        backbone = IntermediateLayerGetter(backbone, return_layers=return_layers)
+        backbone = IntermediateLayerGetter(backbone.model, return_layers=return_layers)
 
         self.model = DeepLabV3(backbone, classifier)
 

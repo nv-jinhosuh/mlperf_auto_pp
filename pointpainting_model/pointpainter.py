@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 class PointPainter(nn.Module):
     def __init__(self, cam_sync=False, proj_mat=None, target_device='cpu'):
@@ -7,21 +8,18 @@ class PointPainter(nn.Module):
         self.device = torch.device(target_device)
         self.seg_net_index = 0
         self.cam_sync = cam_sync
-        self.proj_matrix = proj_mat
-        assert self.proj_matrix is not None, "Need valid projection matrix"
-        self.proj_matrix.to(self.device)
 
     def get_score(self, x):
-        sf = torch.nn.Softmax(dim=2)
-        output_permute = x.permute(1,2,0)
+        sf = torch.nn.Softmax(dim=3)
+        output_permute = x.permute(0, 2, 3, 1)
         output_permute = sf(output_permute)
-        output_reassign = torch.zeros(output_permute.size(0),output_permute.size(1), 6).to(device=x.device)
-        output_reassign[:,:,0] = torch.sum(output_permute[:,:,:11], dim=2) # background
-        output_reassign[:,:,1] = output_permute[:,:,18] #bicycle
-        output_reassign[:,:,2] = torch.sum(output_permute[:,:,[13, 14, 15, 16]], dim=2) # vehicles
-        output_reassign[:,:,3] = output_permute[:,:,11] #person
-        output_reassign[:,:,4] = output_permute[:,:,12] #rider
-        output_reassign[:,:,5] = output_permute[:,:,17] # motorcycle
+        output_reassign = torch.zeros(list(output_permute.shape[:-1]) + [6]).to(device=self.device)
+        output_reassign[...,0] = torch.sum(output_permute[...,:11], dim=3) # background
+        output_reassign[...,1] = output_permute[...,18] #bicycle
+        output_reassign[...,2] = torch.sum(output_permute[...,[13, 14, 15, 16]], dim=3) # vehicles
+        output_reassign[...,3] = output_permute[...,11] #person
+        output_reassign[...,4] = output_permute[...,12] #rider
+        output_reassign[...,5] = output_permute[...,17] # motorcycle
 
         return output_reassign
     
@@ -56,14 +54,14 @@ class PointPainter(nn.Module):
         points_projected_on_mask = points_projected_on_mask[:, :2] #drops homogenous coord 1 from every point, giving (N_pts, 2) int array
         return (points_projected_on_mask, true_where_point_on_img)
 
-    def augment_lidar_class_scores_both(self, class_scores, lidar_raw):
+    def augment_lidar_class_scores_both(self, class_scores, lidar_raw, projection_mats):
         """
         Projects lidar points onto segmentation map, appends class score each point projects onto.
         """
         #lidar_cam_coords = self.cam_to_lidar(lidar_raw, projection_mats)
         # TODO: Project lidar points onto left and right segmentation maps. How to use projection_mats? 
         ################################
-        project_mats = self.proj_matrix
+
         lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 0)
 
         # right
@@ -117,5 +115,5 @@ class PointPainter(nn.Module):
         return augmented_lidar
 
     @torch.no_grad()
-    def forward(self, segmentation_results, lidar_raw):
-        return self.augment_lidar_class_scores_both(self.get_score(segmentation_results), lidar_raw))
+    def forward(self, segmentation_results, lidar_raw, proj_mtx):
+        return self.augment_lidar_class_scores_both(self.get_score(segmentation_results), lidar_raw, proj_mtx)

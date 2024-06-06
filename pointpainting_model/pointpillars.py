@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 from ops import Voxelization, nms_cuda
 
 
-class Anchors():
+class Anchors(nn.Module):
     def __init__(self, ranges, sizes, rotations, target_device='cpu'):
+        super().__init__()
         assert len(ranges) == len(sizes)
         self.ranges = ranges
         self.sizes = sizes
@@ -20,10 +22,9 @@ class Anchors():
         rotations: [0, 1.57]
         return: shape=(y_l, x_l, 2, 7)
         '''
-        device = feature_map_size.device
-        x_centers = torch.linspace(anchor_range[0], anchor_range[3], feature_map_size[1] + 1, device=device)
-        y_centers = torch.linspace(anchor_range[1], anchor_range[4], feature_map_size[0] + 1, device=device)
-        z_centers = torch.linspace(anchor_range[2], anchor_range[5], 1 + 1, device=device)
+        x_centers = torch.linspace(anchor_range[0], anchor_range[3], feature_map_size[1] + 1, device=self.device)
+        y_centers = torch.linspace(anchor_range[1], anchor_range[4], feature_map_size[0] + 1, device=self.device)
+        z_centers = torch.linspace(anchor_range[2], anchor_range[5], 1 + 1, device=self.device)
 
         x_shift = (x_centers[1] - x_centers[0]) / 2
         y_shift = (y_centers[1] - y_centers[0]) / 2
@@ -262,7 +263,7 @@ class Head(nn.Module):
                 nn.init.normal_(m.weight, mean=0, std=0.01)
                 if conv_layer_id == 0:
                     prior_prob = 0.01
-                    bias_init = float(-math.log((1 - prior_prob) / prior_prob))
+                    bias_init = float(-1 * math.log((1 - prior_prob) / prior_prob))
                     nn.init.constant_(m.bias, bias_init)
                 else:
                     nn.init.constant_(m.bias, 0)
@@ -337,10 +338,6 @@ class PointPillars(nn.Module):
         self.nms_thr = 0.25
         self.score_thr = 0.1
         self.max_num = 500
-
-        if checkpoint is not None:
-            loaded_model_state = torch.load(checkpoint)
-            self.model.load_state_dict(loaded_model_state["model_state_dict"])
 
 
     def anchors2bboxes(anchors, deltas):
@@ -515,7 +512,7 @@ class PointPillars(nn.Module):
             return deltas
 
         # modified from https://github.com/open-mmlab/mmdetection3d/blob/master/mmdet3d/core/bbox/structures/utils.py#L11
-        def limit_period(val, offset=0.5, period=np.pi):
+        def limit_period(val, offset=0.5, period=math.pi):
             """
             val: array or float
             offset: float
