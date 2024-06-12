@@ -301,7 +301,7 @@ class PointPillars(nn.Module):
                                         point_cloud_range=point_cloud_range, 
                                         max_num_points=max_num_points, 
                                         max_voxels=max_voxels).to(self.device)
-        pillar_channel = 10
+        pillar_channel = 16
         self.pillar_encoder = PillarEncoder(voxel_size=voxel_size, 
                                             point_cloud_range=point_cloud_range, 
                                             in_channel=pillar_channel,
@@ -324,23 +324,21 @@ class PointPillars(nn.Module):
         rotations=[0, 1.57]
         self.anchors_generator = Anchors(ranges=ranges, 
                                          sizes=sizes, 
-                                         rotations=rotations).to(self.device)
+                                         rotations=rotations,
+                                         target_device=target_device)
         
-        # train
-        self.assigners = [
-            {'pos_iou_thr': 0.5, 'neg_iou_thr': 0.3, 'min_iou_thr': 0.3},
-            {'pos_iou_thr': 0.5, 'neg_iou_thr': 0.3, 'min_iou_thr': 0.3},
-            {'pos_iou_thr': 0.55, 'neg_iou_thr': 0.4, 'min_iou_thr': 0.4},
-        ]
-
         # val and test
         self.nms_pre = 4096
         self.nms_thr = 0.25
         self.score_thr = 0.1
         self.max_num = 500
 
+        if checkpoint is not None:
+            loaded_state = torch.load(checkpoint, map_location=self.device)
+            self.load_state_dict(loaded_state["model_state_dict"])
 
-    def anchors2bboxes(anchors, deltas):
+
+    def anchors2bboxes(self, anchors, deltas):
         '''
         anchors: (M, 7),  (x, y, z, w, l, h, theta)
         deltas: (M, 7)
@@ -373,6 +371,17 @@ class PointPillars(nn.Module):
             labels: (k, )
             scores: (k, ) 
         '''
+        # modified from https://github.com/open-mmlab/mmdetection3d/blob/master/mmdet3d/core/bbox/structures/utils.py#L11
+        def limit_period(val, offset=0.5, period=math.pi):
+            """
+            val: array or float
+            offset: float
+            period: float
+            return: Value in the range of [-offset * period, (1-offset) * period]
+            """
+            limited_val = val - torch.floor(val / period + offset) * period
+            return limited_val
+
         # 0. pre-process 
         bbox_cls_pred = bbox_cls_pred.permute(1, 2, 0).reshape(-1, self.nclasses)
         bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 7)
@@ -422,7 +431,7 @@ class PointPillars(nn.Module):
             cur_bbox_cls_pred = cur_bbox_cls_pred[keep_inds]
             cur_bbox_pred = cur_bbox_pred[keep_inds]
             cur_bbox_dir_cls_pred = cur_bbox_dir_cls_pred[keep_inds]
-            cur_bbox_pred[:, -1] = limit_period(cur_bbox_pred[:, -1].detach().cpu(), 1, math.pi).to(cur_bbox_pred) # [-pi, 0]
+            cur_bbox_pred[:, -1] = limit_period(cur_bbox_pred[:, -1], 1, math.pi).to(cur_bbox_pred) # [-pi, 0]
             cur_bbox_pred[:, -1] += (1 - cur_bbox_dir_cls_pred) * math.pi
 
             ret_bboxes.append(cur_bbox_pred)
@@ -473,216 +482,6 @@ class PointPillars(nn.Module):
             results.append(result)
         return results
 
-
-    def anchor_target(batched_anchors, batched_gt_bboxes, batched_gt_labels, assigners, nclasses):
-        '''
-        batched_anchors: [(y_l, x_l, 3, 2, 7), (y_l, x_l, 3, 2, 7), ... ]
-        batched_gt_bboxes: [(n1, 7), (n2, 7), ...]
-        batched_gt_labels: [(n1, ), (n2, ), ...]
-        return: 
-            dict = {batched_anchors_labels: (bs, n_anchors),
-                    batched_labels_weights: (bs, n_anchors),
-                    batched_anchors_reg: (bs, n_anchors, 7),
-                    batched_reg_weights: (bs, n_anchors),
-                    batched_anchors_dir: (bs, n_anchors),
-                    batched_dir_weights: (bs, n_anchors)}
-        '''
-
-        def bboxes2deltas(bboxes, anchors):
-            '''
-            bboxes: (M, 7), (x, y, z, w, l, h, theta)
-            anchors: (M, 7)
-            return: (M, 7)
-            '''
-            da = torch.sqrt(anchors[:, 3] ** 2 + anchors[:, 4] ** 2)
-
-            dx = (bboxes[:, 0] - anchors[:, 0]) / da
-            dy = (bboxes[:, 1] - anchors[:, 1]) / da
-
-            zb = bboxes[:, 2] + bboxes[:, 5] / 2  # bottom center
-            za = anchors[:, 2] + anchors[:, 5] / 2 # bottom center
-            dz = (zb - za) / anchors[:, 5] # bottom center
-
-            dw = torch.log(bboxes[:, 3] / anchors[:, 3])
-            dl = torch.log(bboxes[:, 4] / anchors[:, 4])
-            dh = torch.log(bboxes[:, 5] / anchors[:, 5])
-            dtheta = bboxes[:, 6] - anchors[:, 6]
-
-            deltas = torch.stack([dx, dy, dz, dw, dl, dh, dtheta], dim=1)
-            return deltas
-
-        # modified from https://github.com/open-mmlab/mmdetection3d/blob/master/mmdet3d/core/bbox/structures/utils.py#L11
-        def limit_period(val, offset=0.5, period=math.pi):
-            """
-            val: array or float
-            offset: float
-            period: float
-            return: Value in the range of [-offset * period, (1-offset) * period]
-            """
-            limited_val = val - np.floor(val / period + offset) * period
-            return limited_val
-
-
-        def nearest_bev(bboxes):
-            '''
-            bboxes: (n, 7), (x, y, z, w, l, h, theta)
-            return: (n, 4), (x1, y1, x2, y2)
-            '''    
-            bboxes_bev = copy.deepcopy(bboxes[:, [0, 1, 3, 4]])
-            bboxes_angle = limit_period(bboxes[:, 6].cpu(), offset=0.5, period=np.pi).to(bboxes_bev)
-            bboxes_bev = torch.where(torch.abs(bboxes_angle[:, None]) > np.pi / 4, bboxes_bev[:, [0, 1, 3, 2]], bboxes_bev)
-            
-            bboxes_xy = bboxes_bev[:, :2]
-            bboxes_wl = bboxes_bev[:, 2:]
-            bboxes_bev_x1y1x2y2 = torch.cat([bboxes_xy - bboxes_wl / 2, bboxes_xy + bboxes_wl / 2], dim=-1)
-            return bboxes_bev_x1y1x2y2
-
-
-        def iou2d(bboxes1, bboxes2, metric=0):
-            '''
-            bboxes1: (n, 4), (x1, y1, x2, y2)
-            bboxes2: (m, 4), (x1, y1, x2, y2)
-            return: (n, m)
-            '''
-            rows = len(bboxes1)
-            cols = len(bboxes2)
-            if rows*cols == 0:
-                return torch.empty((rows, cols))
-            bboxes_x1 = torch.maximum(bboxes1[:, 0][:, None], bboxes2[:, 0][None, :]) # (n, m)
-            bboxes_y1 = torch.maximum(bboxes1[:, 1][:, None], bboxes2[:, 1][None, :]) # (n, m)
-            bboxes_x2 = torch.minimum(bboxes1[:, 2][:, None], bboxes2[:, 2][None, :])
-            bboxes_y2 = torch.minimum(bboxes1[:, 3][:, None], bboxes2[:, 3][None, :])
-
-            bboxes_w = torch.clamp(bboxes_x2 - bboxes_x1, min=0)
-            bboxes_h = torch.clamp(bboxes_y2 - bboxes_y1, min=0)
-
-            iou_area = bboxes_w * bboxes_h # (n, m)
-            
-            bboxes1_wh = bboxes1[:, 2:] - bboxes1[:, :2]
-            area1 = bboxes1_wh[:, 0] * bboxes1_wh[:, 1] # (n, )
-            bboxes2_wh = bboxes2[:, 2:] - bboxes2[:, :2]
-            area2 = bboxes2_wh[:, 0] * bboxes2_wh[:, 1] # (m, )
-            if metric == 0:
-                iou = iou_area / (area1[:, None] + area2[None, :] - iou_area + 1e-8)
-            elif metric == 1:
-                iou = iou_area / (area1[:, None] + 1e-8)
-            return iou
-
-
-        def iou2d_nearest(bboxes1, bboxes2):
-            '''
-            bboxes1: (n, 7), (x, y, z, w, l, h, theta)
-            bboxes2: (m, 7),
-            return: (n, m)
-            '''
-            bboxes1_bev = nearest_bev(bboxes1)
-            bboxes2_bev = nearest_bev(bboxes2)
-            iou = iou2d(bboxes1_bev, bboxes2_bev)
-            return iou
-
-        assert len(batched_anchors) == len(batched_gt_bboxes) == len(batched_gt_labels)
-        batch_size = len(batched_anchors)
-        n_assigners = len(assigners)
-        batched_labels, batched_label_weights = [], []
-        batched_bbox_reg, batched_bbox_reg_weights = [], []
-        batched_dir_labels, batched_dir_labels_weights = [], []
-        for i in range(batch_size):
-            anchors = batched_anchors[i]
-            gt_bboxes, gt_labels = batched_gt_bboxes[i], batched_gt_labels[i]
-            # what we want to get next ?
-            # 1. identify positive anchors and negative anchors  -> cls
-            # 2. identify the regresstion values  -> reg
-            # 3. indentify the direction  -> dir_cls
-            multi_labels, multi_label_weights = [], []
-            multi_bbox_reg, multi_bbox_reg_weights = [], []
-            multi_dir_labels, multi_dir_labels_weights = [], []
-            d1, d2, d3, d4, d5 = anchors.size()
-            for j in range(n_assigners): # multi anchors
-                assigner = assigners[j]
-                pos_iou_thr, neg_iou_thr, min_iou_thr = \
-                assigner['pos_iou_thr'], assigner['neg_iou_thr'], assigner['min_iou_thr']
-                cur_anchors = anchors[:, :, j, :, :].reshape(-1, 7)
-                overlaps = iou2d_nearest(gt_bboxes, cur_anchors)
-                if overlaps.shape[0] == 0:
-                    max_overlaps = torch.zeros_like(cur_anchors[:, 0], dtype=cur_anchors.dtype)
-                    max_overlaps_idx = torch.zeros_like(cur_anchors[:, 0], dtype=torch.long)
-                else:    
-                    max_overlaps, max_overlaps_idx = torch.max(overlaps, dim=0)
-                    gt_max_overlaps, _ = torch.max(overlaps, dim=1)
-
-                assigned_gt_inds = -torch.ones_like(cur_anchors[:, 0], dtype=torch.long)
-                # a. negative anchors
-                assigned_gt_inds[max_overlaps < neg_iou_thr] = 0
-
-                # b. positive anchors
-                # rule 1
-                assigned_gt_inds[max_overlaps >= pos_iou_thr] = max_overlaps_idx[max_overlaps >= pos_iou_thr] + 1
-                
-                # rule 2
-                # support one bbox to multi anchors, only if the anchors are with the highest iou.
-                # rule2 may modify the labels generated by rule 1
-                for i in range(len(gt_bboxes)):
-                    if gt_max_overlaps[i] >= min_iou_thr:
-                        assigned_gt_inds[overlaps[i] == gt_max_overlaps[i]] = i + 1
-
-                pos_flag = assigned_gt_inds > 0
-                neg_flag = assigned_gt_inds == 0
-                # 1. anchor labels
-                assigned_gt_labels = torch.zeros_like(cur_anchors[:, 0], dtype=torch.long) + nclasses # -1 is not optimal, for some bboxes are with labels -1
-                assigned_gt_labels[pos_flag] = gt_labels[assigned_gt_inds[pos_flag] - 1].long()
-                assigned_gt_labels_weights = torch.zeros_like(cur_anchors[:, 0])
-                assigned_gt_labels_weights[pos_flag] = 1
-                assigned_gt_labels_weights[neg_flag] = 1
-
-                # 2. anchor regression
-                assigned_gt_reg_weights = torch.zeros_like(cur_anchors[:, 0])
-                assigned_gt_reg_weights[pos_flag] = 1
-
-                assigned_gt_reg = torch.zeros_like(cur_anchors)
-                positive_anchors = cur_anchors[pos_flag]
-                corr_gt_bboxes = gt_bboxes[assigned_gt_inds[pos_flag] - 1]
-                assigned_gt_reg[pos_flag] = bboxes2deltas(corr_gt_bboxes, positive_anchors)
-
-                # 3. anchor direction
-                assigned_gt_dir_weights = torch.zeros_like(cur_anchors[:, 0])
-                assigned_gt_dir_weights[pos_flag] = 1
-
-                assigned_gt_dir = torch.zeros_like(cur_anchors[:, 0], dtype=torch.long)
-                dir_cls_targets = limit_period(corr_gt_bboxes[:, 6].cpu(), 0, 2 * math.pi).to(corr_gt_bboxes)
-                dir_cls_targets = torch.floor(dir_cls_targets / math.pi).long()
-                assigned_gt_dir[pos_flag] = torch.clamp(dir_cls_targets, min=0, max=1)
-
-                multi_labels.append(assigned_gt_labels.reshape(d1, d2, 1, d4))
-                multi_label_weights.append(assigned_gt_labels_weights.reshape(d1, d2, 1, d4))
-                multi_bbox_reg.append(assigned_gt_reg.reshape(d1, d2, 1, d4, -1))
-                multi_bbox_reg_weights.append(assigned_gt_reg_weights.reshape(d1, d2, 1, d4))
-                multi_dir_labels.append(assigned_gt_dir.reshape(d1, d2, 1, d4))
-                multi_dir_labels_weights.append(assigned_gt_dir_weights.reshape(d1, d2, 1, d4))
-            
-            multi_labels = torch.cat(multi_labels, dim=-2).reshape(-1)
-            multi_label_weights = torch.cat(multi_label_weights, dim=-2).reshape(-1)
-            multi_bbox_reg = torch.cat(multi_bbox_reg, dim=-3).reshape(-1, d5)
-            multi_bbox_reg_weights = torch.cat(multi_bbox_reg_weights, dim=-2).reshape(-1)
-            multi_dir_labels = torch.cat(multi_dir_labels, dim=-2).reshape(-1)
-            multi_dir_labels_weights = torch.cat(multi_dir_labels_weights, dim=-2).reshape(-1)
-
-            batched_labels.append(multi_labels)
-            batched_label_weights.append(multi_label_weights)
-            batched_bbox_reg.append(multi_bbox_reg)
-            batched_bbox_reg_weights.append(multi_bbox_reg_weights)
-            batched_dir_labels.append(multi_dir_labels) 
-            batched_dir_labels_weights.append(multi_dir_labels_weights)
-        
-        rt_dict = dict(
-            batched_labels=torch.stack(batched_labels, 0), # (bs, y_l * x_l * 3 * 2)
-            batched_label_weights=torch.stack(batched_label_weights, 0), # (bs, y_l * x_l * 3 * 2)
-            batched_bbox_reg=torch.stack(batched_bbox_reg, 0), # (bs, y_l * x_l * 3 * 2, 7)
-            batched_bbox_reg_weights=torch.stack(batched_bbox_reg_weights, 0), # (bs, y_l * x_l * 3 * 2)
-            batched_dir_labels=torch.stack(batched_dir_labels, 0), # (bs, y_l * x_l * 3 * 2)
-            batched_dir_labels_weights=torch.stack(batched_dir_labels_weights, 0) # (bs, y_l * x_l * 3 * 2)
-        )
-
-        return rt_dict
 
     @torch.no_grad()
     def forward(self, batched_pts):

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class PointPainter(nn.Module):
-    def __init__(self, cam_sync=False, proj_mat=None, target_device='cpu'):
+    def __init__(self, cam_sync=False, target_device='cpu'):
         super().__init__()
 
         self.device = torch.device(target_device)
@@ -10,7 +10,7 @@ class PointPainter(nn.Module):
         self.cam_sync = cam_sync
 
     def get_score(self, x):
-        sf = torch.nn.Softmax(dim=3)
+        sf = torch.nn.Softmax(dim=3).to(device=self.device)
         output_permute = x.permute(0, 2, 3, 1)
         output_permute = sf(output_permute)
         output_reassign = torch.zeros(list(output_permute.shape[:-1]) + [6]).to(device=self.device)

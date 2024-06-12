@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.hub import load_state_dict_from_url
 from collections import OrderedDict
 
 
@@ -313,12 +312,8 @@ class ResNet(nn.Module):
 class ResNet50(nn.Module):
     r"""ResNet-50 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
     """
-    def __init__(self, pretrained=False, replace_stride_with_dilation=None, progress=True, **kwargs):
+    def __init__(self, replace_stride_with_dilation=None, **kwargs):
         super().__init__()
 
         block = ResNetBottleneck
@@ -326,12 +321,7 @@ class ResNet50(nn.Module):
 
         self.model = ResNet(block, layers, replace_stride_with_dilation=replace_stride_with_dilation,
                             **kwargs)
-        if pretrained:
-            model_url = "https://download.pytorch.org/models/resnet50-19c8e357.pth"
-            state_dict = load_state_dict_from_url(url=model_url,
-                                                  progress=progress)
-            self.model.load_state_dict(state_dict)
-    
+   
     @torch.no_grad()
     def forward(self, x):
         return self.model.forward(x)
@@ -357,16 +347,6 @@ class IntermediateLayerGetter(nn.ModuleDict):
             the key of the dict, and the value of the dict is the name
             of the returned activation (which the user can specify).
 
-    Examples::
-
-        >>> m = torchvision.models.resnet18(pretrained=True)
-        >>> # extract layer1 and layer3, giving as names `feat1` and feat2`
-        >>> new_m = torchvision.models._utils.IntermediateLayerGetter(m,
-        >>>     {'layer1': 'feat1', 'layer3': 'feat2'})
-        >>> out = new_m(torch.rand(1, 3, 224, 224))
-        >>> print([(k, v.shape) for k, v in out.items()])
-        >>>     [('feat1', torch.Size([1, 64, 56, 56])),
-        >>>      ('feat2', torch.Size([1, 256, 14, 14]))]
     """
     def __init__(self, model, return_layers):
         if not set(return_layers).issubset([name for name, _ in model.named_children()]):
@@ -403,10 +383,8 @@ class DeepLabV3Plus_ResNet50(nn.Module):
     Args:
         num_classes (int): number of classes.
         output_stride (int): output stride for deeplab.
-        pretrained_backbone (bool): If True, use the pretrained backbone.
     """
-    def __init__(self, checkpoint=None, target_device='cpu', num_classes=19, output_stride=16, 
-                 pretrained_backbone=False):
+    def __init__(self, checkpoint=None, target_device='cpu', num_classes=19, output_stride=16):
         super().__init__()
         
         self.device = torch.device(target_device)
@@ -418,10 +396,7 @@ class DeepLabV3Plus_ResNet50(nn.Module):
             replace_stride_with_dilation=[False, False, True]
             aspp_dilate = [6, 12, 18]
 
-        # FIXME: jsuh: is it necessary loading pretrained RN50 here?
-        backbone = ResNet50(
-            pretrained=pretrained_backbone,
-            replace_stride_with_dilation=replace_stride_with_dilation)
+        backbone = ResNet50(replace_stride_with_dilation=replace_stride_with_dilation)
         
         inplanes = 2048
         low_level_planes = 256

@@ -32,6 +32,6 @@ class PointPainting(nn.Module):
 
         result = self.segmenter(x)
         result = self.painter(result, y, z)
-        result = self.detector(result)
+        result = self.detector([result])
 
         return result

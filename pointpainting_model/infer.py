@@ -2,6 +2,7 @@ import argparse
 import torch
 import numpy as np
 import time
+import copy
 
 from dataset import Waymo, get_dataloader
 from pointpainting import PointPainting
@@ -48,22 +49,23 @@ def run_infer(args):
                                        args.cam_sync,
                                        target_device)
 
-    print('Starting Inference Task...')
     results_dict = dict()
     input_img_shape = (1, 3, 1280, 1920)
+    total = len(val_dataloader)
+    print(f'Starting Inference Task for {total} requests...')
     with torch.inference_mode():
         for i, data_dict in enumerate(val_dataloader):
             # Prep the input tensors
             data_dict['batched_calib_info'][0] = convert_calib(data_dict['batched_calib_info'][0], target_device)
             data_dict['batched_pts'][0].to(target_device)
-            for i in range(len(data_dict['batched_images'][0])):
-                img = data_dict['batched_images'][0][i].to(target_device)
+            for j in range(len(data_dict['batched_images'][0])):
+                img = data_dict['batched_images'][0][j].to(target_device)
                 if img.shape < input_img_shape:
                     padding = [input_img_shape[k] - img.shape[k] for k in range(len(input_img_shape))]
                     padder = torch.nn.ZeroPad2d(padding)
                     img = padder(img)
                 assert img.shape == input_img_shape, "Illegal input image shape"
-                data_dict['batched_images'][0][i] = img
+                data_dict['batched_images'][0][j] = img
             for key in data_dict:
                 for j, item in enumerate(data_dict[key]):
                     if torch.is_tensor(item):
@@ -81,13 +83,14 @@ def run_infer(args):
 
             assert len(batched_results) == 1, "Expecting only one output tensor"
             results_dict[i] = {
-                'results': batched_results[0].to('cpu'),
+                'results': copy.deepcopy(batched_results[0]),
                 'latency': iter_time,
                 'ground_truth': {
-                    'lidar_bboxes': data_dict['batched_gt_bboxxes'][0],
-                    'lables': data_dict['batched_labels'][0]
+                    'lidar_bboxes': copy.deepcopy(data_dict['batched_gt_bboxes'][0]),
+                    'lables': copy.deepcopy(data_dict['batched_labels'][0]),
                 }
             }
+            print(f"{i}/{total} took {iter_time} sec")
     
     return results_dict
     
