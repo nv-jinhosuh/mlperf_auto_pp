@@ -90,13 +90,13 @@ def run_infer(args):
                     'lables': copy.deepcopy(data_dict['batched_labels'][0]),
                 }
             }
-            print(f"{i}/{total} took {iter_time} sec")
+            print(f"{i+1}/{total} took {iter_time} sec")
     
     return results_dict
     
 def run_eval(results):
     # get latency distribution
-    latencies = [i['latency'] for i in results.items()]
+    latencies = [i['latency'] for i in results.values()]
     latencies = np.array(latencies)
     mean_lat = latencies.mean()
     throughput = 1. / mean_lat
