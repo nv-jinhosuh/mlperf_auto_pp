@@ -51,6 +51,8 @@ def run_infer(args):
 
     results_dict = dict()
     input_img_shape = (1, 3, 1280, 1920)
+    calib_names = ['Tr_velo_to_cam_0', 'Tr_velo_to_cam_1', 'Tr_velo_to_cam_2', 'Tr_velo_to_cam_3', 'Tr_velo_to_cam_4',
+                   'P0', 'P1', 'P2', 'P3', 'P4', 'R0_rect']
     total = len(val_dataloader)
     print(f'Starting Inference Task for {total} requests...')
     with torch.inference_mode():
@@ -71,9 +73,10 @@ def run_infer(args):
                     if torch.is_tensor(item):
                         data_dict[key][j] = data_dict[key][j].to(target_device)
 
+            calib_list = [data_dict['batched_calib_info'][0][n] for n in calib_names]
             x = torch.cat(data_dict['batched_images'][0], dim=0).to(target_device)
             y = torch.Tensor(data_dict['batched_pts'][0]).to(target_device)
-            z = data_dict['batched_calib_info'][0]
+            z = torch.stack(calib_list).to(target_device)
 
             # FIXME: should I use perf_counter_ns()? 
             start_time = time.perf_counter()
@@ -91,7 +94,7 @@ def run_infer(args):
                 }
             }
             print(f"{i+1}/{total} took {iter_time} sec")
-    
+
     return results_dict
     
 def run_eval(results):

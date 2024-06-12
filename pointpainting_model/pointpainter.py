@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 
+# projection_tensor: ['Tr_velo_to_cam_0', 'Tr_velo_to_cam_1', 'Tr_velo_to_cam_2', 'Tr_velo_to_cam_3', 'Tr_velo_to_cam_4',
+#                     'P0', 'P1', 'P2', 'P3', 'P4', 'R0_rect']
+
 class PointPainter(nn.Module):
     def __init__(self, cam_sync=False, target_device='cpu'):
         super().__init__()
@@ -23,7 +26,7 @@ class PointPainter(nn.Module):
 
         return output_reassign
     
-    def cam_to_lidar(self, pointcloud, projection_mats, camera_num):
+    def cam_to_lidar(self, pointcloud, tr_velo_to_cam_mat):
         """
         Takes in lidar in velo coords, returns lidar points in camera coords
 
@@ -34,14 +37,14 @@ class PointPainter(nn.Module):
         lidar_velo_coords = pointcloud.clone()
         reflectances = lidar_velo_coords[:, -1].clone() #copy reflectances column
         lidar_velo_coords[:, -1] = 1 # for multiplying with homogeneous matrix
-        lidar_cam_coords = projection_mats['Tr_velo_to_cam_' + str(camera_num)].matmul(lidar_velo_coords.transpose(0, 1))
+        lidar_cam_coords = tr_velo_to_cam_mat.matmul(lidar_velo_coords.transpose(0, 1))
         lidar_cam_coords = lidar_cam_coords.transpose(0, 1)
         lidar_cam_coords[:, -1] = reflectances
         
         return lidar_cam_coords
 
-    def project_points_mask(self, lidar_cam_points, projection_mats, class_scores, camera_num):
-        points_projected_on_mask = projection_mats['P' + str(camera_num)].matmul(projection_mats['R0_rect'].matmul(lidar_cam_points.transpose(0, 1)))
+    def project_points_mask(self, lidar_cam_points, P_mat, R0_rect_mat, class_scores, camera_num):
+        points_projected_on_mask = P_mat.matmul(R0_rect_mat.matmul(lidar_cam_points.transpose(0, 1)))
         points_projected_on_mask = points_projected_on_mask.transpose(0, 1)
         points_projected_on_mask = points_projected_on_mask/(points_projected_on_mask[:,2].reshape(-1,1))
 
@@ -62,30 +65,30 @@ class PointPainter(nn.Module):
         # TODO: Project lidar points onto left and right segmentation maps. How to use projection_mats? 
         ################################
 
-        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 0)
+        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats[0])
 
         # right
         lidar_cam_coords[:, -1] = 1 #homogenous coords for projection
         # TODO: change projection_mats['P2'] and projection_mats['R0_rect'] to be?
-        points_projected_on_mask_0, true_where_point_on_img_0 = self.project_points_mask(lidar_cam_coords, projection_mats, class_scores, 0)
+        points_projected_on_mask_0, true_where_point_on_img_0 = self.project_points_mask(lidar_cam_coords, projection_mats[5], projection_mats[10], class_scores, 0)
         
         # left
-        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 1)
+        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats[1])
         lidar_cam_coords[:, -1] = 1 #homogenous coords for projection
         # TODO: change projection_mats['P2'] and projection_mats['R0_rect'] to be?
-        points_projected_on_mask_1, true_where_point_on_img_1 = self.project_points_mask(lidar_cam_coords, projection_mats, class_scores, 1)
+        points_projected_on_mask_1, true_where_point_on_img_1 = self.project_points_mask(lidar_cam_coords, projection_mats[6], projection_mats[10], class_scores, 1)
         
-        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 2)
+        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats[2])
         lidar_cam_coords[:, -1] = 1
-        points_projected_on_mask_2, true_where_point_on_img_2 = self.project_points_mask(lidar_cam_coords, projection_mats, class_scores, 2)
+        points_projected_on_mask_2, true_where_point_on_img_2 = self.project_points_mask(lidar_cam_coords, projection_mats[7], projection_mats[10], class_scores, 2)
         
-        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 3)
+        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats[3])
         lidar_cam_coords[:, -1] = 1
-        points_projected_on_mask_3, true_where_point_on_img_3 = self.project_points_mask(lidar_cam_coords, projection_mats, class_scores, 3)
+        points_projected_on_mask_3, true_where_point_on_img_3 = self.project_points_mask(lidar_cam_coords, projection_mats[8], projection_mats[10], class_scores, 3)
         
-        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats, 4)
+        lidar_cam_coords = self.cam_to_lidar(lidar_raw[:,:4], projection_mats[4])
         lidar_cam_coords[:, -1] = 1
-        points_projected_on_mask_4, true_where_point_on_img_4 = self.project_points_mask(lidar_cam_coords, projection_mats, class_scores, 4)
+        points_projected_on_mask_4, true_where_point_on_img_4 = self.project_points_mask(lidar_cam_coords, projection_mats[9], projection_mats[10], class_scores, 4)
 
         true_where_point_on_both_0_1 = true_where_point_on_img_0 & true_where_point_on_img_1
         true_where_point_on_both_0_2 = true_where_point_on_img_0 & true_where_point_on_img_2
