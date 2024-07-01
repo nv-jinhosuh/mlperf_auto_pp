@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from ops import Voxelization, nms_cuda
+#from ops import Voxelization, nms_cuda
+from ops import Voxelization
+from detectron2.layers import nms_rotated
 
 
 class Anchors(nn.Module):
@@ -422,12 +424,15 @@ class PointPillars(nn.Module):
             cur_bbox_dir_cls_pred = bbox_dir_cls_pred[score_inds]
             
             # 3.2 nms core
-            keep_inds = nms_cuda(boxes=cur_bbox_pred2d, 
-                                 scores=cur_bbox_cls_pred, 
-                                 thresh=self.nms_thr, 
-                                 pre_maxsize=None, 
-                                 post_max_size=None)
-
+            # keep_inds = nms_cuda(boxes=cur_bbox_pred2d, 
+            #                      scores=cur_bbox_cls_pred, 
+            #                      thresh=self.nms_thr, 
+            #                      pre_maxsize=None, 
+            #                      post_max_size=None)
+            keep_inds = nms_rotated(boxes=cur_bbox_pred2d,
+                                    scores=cur_bbox_cls_pred,
+                                    iou_threshold=self.nms_thr)
+            
             cur_bbox_cls_pred = cur_bbox_cls_pred[keep_inds]
             cur_bbox_pred = cur_bbox_pred[keep_inds]
             cur_bbox_dir_cls_pred = cur_bbox_dir_cls_pred[keep_inds]

@@ -77,7 +77,7 @@ def run_infer(args):
             x = torch.cat(data_dict['batched_images'][0], dim=0).to(target_device)
             y = torch.Tensor(data_dict['batched_pts'][0]).to(target_device)
             z = torch.stack(calib_list).to(target_device)
-
+            
             # FIXME: should I use perf_counter_ns()? 
             start_time = time.perf_counter()
             batched_results = PointPaintingModel(x, y, z)
@@ -94,6 +94,16 @@ def run_infer(args):
                 }
             }
             print(f"{i+1}/{total} took {iter_time} sec")
+            if i > 10:
+                break
+    
+    # TORCH to ONNX export
+    torch_model = PointPaintingModel
+    torch_input_x = x
+    torch_input_y = y
+    torch_input_z = z
+    onnx_program = torch.onnx.dynamo_export(torch_model, torch_input_x, torch_input_y, torch_input_z)
+    onnx_program.save("pp.onnx")
 
     return results_dict
     
