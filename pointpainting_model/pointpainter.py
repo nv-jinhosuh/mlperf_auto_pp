@@ -13,7 +13,7 @@ class PointPainter(nn.Module):
         self.cam_sync = cam_sync
 
     def get_score(self, x):
-        sf = torch.nn.Softmax(dim=-1).to(device=self.device)
+        sf = torch.nn.Softmax(dim=-1)
         output_permute = x.permute(0, 2, 3, 1)
         output_permute = sf(output_permute)
         output_reassign = torch.zeros(list(output_permute.shape[:-1]) + [6]).to(device=self.device)

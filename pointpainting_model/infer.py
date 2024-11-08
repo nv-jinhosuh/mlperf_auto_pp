@@ -48,6 +48,7 @@ def run_infer(args):
                                        args.num_classes,
                                        args.cam_sync,
                                        target_device)
+    PointPaintingModel.eval()
 
     results_dict = dict()
     input_img_shape = (1, 3, 1280, 1920)
