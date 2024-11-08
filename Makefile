@@ -68,7 +68,13 @@ build_docker:
 .PHONY: build_waymo_docker
 build_waymo_docker:
 	docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-latest \
-		--build-arg DOCKER_BASE_IMAGE=$(DOCKER_BASE_IMAGE):$(DOCKER_TAG)-latest \
+		--build-arg DOCKER_BASE_IMAGE=$(DOCKER_BASE_IMAGE) \
+		--build-arg TRT_DEB_URL=$(TRT_DEB_URL) \
+		--build-arg TRT_MAJOR_VER=$(TRT_MAJOR_VER) \
+		--build-arg TRT_MINOR_VER=$(TRT_MINOR_VER) \
+		--build-arg TRT_PATCH_VER=$(TRT_PATCH_VER) \
+		--build-arg TRT_QA_VER=$(TRT_QA_VER) \
+		--build-arg CUDA_VER=$(CUDA_VER) \
 		--network host \
 		-f $(DOCKER_WAYMO_FILENAME) \
 		.
@@ -124,6 +130,5 @@ run_docker:
 # Run docker with Waymo
 .PHONY: run_waymo_docker
 run_waymo_docker:
-	@$(MAKE) -f $(MAKEFILE_NAME) build_docker
 	@$(MAKE) -f $(MAKEFILE_NAME) build_waymo_docker
 	@$(MAKE) -f $(MAKEFILE_NAME) attach_docker || true

@@ -26,13 +26,10 @@ ENV PATH="$PATH:/opt/miniconda3/bin"
 
 RUN pip3 install pyyaml tqdm numba 
 # TODO: remove waymo-open-dataset-tf/mmcv when preprocessing is no more needed
-# RUN pip3 install waymo-open-dataset-tf-2-11-0 mmcv opencv-python==4.8.0.74 nuscenes-devkit mmdet mmdet3d
-# RUN apt install -y ffmpeg libsm6 libxext6 
+RUN pip3 install waymo-open-dataset-tf-2-11-0 mmcv opencv-python==4.8.0.74 nuscenes-devkit mmdet mmdet3d
+RUN apt install -y ffmpeg libsm6 libxext6 
 RUN pip3 install open3d
 RUN pip3 install numpy==1.24.0 dask==2024.1.1 protobuf==4.21 pillow==9.3.0 tensorboard==2.16.2
-
-# some funny libs that would not need eventually
-# RUN apt install libx11-6 libglu1-mesa libxi-dev libxmu-dev libglu1-mesa-dev
 
 
 # # Remove prevous TRT installation

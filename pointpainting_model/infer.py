@@ -20,7 +20,7 @@ def run_infer(args):
                 torch.from_numpy(calib['Tr_velo_to_cam_' + str(i)]).to(device, dtype=torch.float)
         return result
 
-    val_dataset = Waymo(data_root=args.waymo_path,
+    val_dataset = Waymo(data_root=args.data_root,
                         split='val', 
                         cam_sync=args.cam_sync, 
                         inference=True, 
@@ -37,8 +37,8 @@ def run_infer(args):
 
     target_device = 'cuda' if (torch.cuda.is_available() and not args.no_cuda) else 'cpu'
 
-    segmenter_checkpoint_path = Path(args.segmentation_model_path).absolute()
-    detector_checkpoint_path = Path(args.lidar_model_path).absolute()
+    segmenter_checkpoint_path = Path(args.segmentor).absolute()
+    detector_checkpoint_path = Path(args.lidar_detector).absolute()
     assert segmenter_checkpoint_path.is_file(), "Need valid checkpoint file for segmentation network"
     assert detector_checkpoint_path.is_file(), "Need valid checkpoint file for lidar detection network"
 
@@ -118,11 +118,11 @@ def run_eval(results):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Configuration Parameters')
-    parser.add_argument('--lidar_model_path', help='Path to lidar (PointPillar) model', required=True)
-    parser.add_argument('--segmentation_model_path', help='Path to segmentation (DeepLabV3plus_RN50) model', required=True)
+    parser.add_argument('--lidar_detector', help='Path to lidar (PointPillar) model', required=True)
+    parser.add_argument('--segmentor', help='Path to segmentation (DeepLabV3plus_RN50) model', required=True)
     parser.add_argument('--num_classes', type=int, default=3, help='Number of classes for 3D detection')
     parser.add_argument('--cam_sync', action='store_true', help='Use only objects visible to a camera')
-    parser.add_argument('--waymo_path', help='Path to data root of waymo dataset')
+    parser.add_argument('--data_root', help='Path to data root of waymo dataset')
     parser.add_argument('--no_cuda', action='store_true', help='Do not use CUDA even if it is available')
     parser.add_argument('--num_workers', type=int, default=4)
 
